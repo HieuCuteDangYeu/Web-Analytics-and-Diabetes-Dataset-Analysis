@@ -1,0 +1,6 @@
+"Variable","Error_Type","Count","Percentage","Description"
+"Glucose","Zero values",5,0.65,"Biologically impossible - glucose cannot be zero in living individuals"
+"BloodPressure","Zero values",35,4.56,"Diastolic blood pressure cannot be zero in living individuals"
+"SkinThickness","Zero values",227,29.56,"Skin fold thickness measurements cannot be zero"
+"Insulin","Zero values",374,48.7,"Zero values likely represent missing measurements"
+"BMI","Zero values",11,1.43,"Body Mass Index cannot be zero"

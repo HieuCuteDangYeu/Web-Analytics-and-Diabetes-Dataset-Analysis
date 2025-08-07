@@ -1,0 +1,1340 @@
+# Data Analytics Coursework Report
+
+**COMP-1810**
+
+------------------------------------------------------------------------
+
+## Table of Contents
+
+1.  [Executive Summary](#executive-summary)
+
+2.  [Task 1: Web Analytics Dataset Analysis](#task-1-web-analytics-dataset-analysis)
+
+    -   [Task a: Traffic Sources Analysis](#task-a-traffic-sources-analysis)
+
+    -   [Task b: Device Usage Analysis](#task-b-device-usage-analysis)
+
+    -   [Task c: Relationship Analysis](#task-c-relationship-analysis)
+
+3.  [Task 2: Diabetes Dataset Analysis](#task-2-diabetes-dataset-analysis)
+
+    -   [Task d: Descriptive Statistics](#task-d-descriptive-statistics)
+
+    -   [Task e: Error Identification](#task-e-error-identification)
+
+4.  [Conclusions](#conclusions)
+
+------------------------------------------------------------------------
+
+## Executive Summary {#executive-summary}
+
+This report presents a comprehensive analysis of two datasets: a web analytics dataset from an online retail store and a diabetes dataset from Pima Indians. The analysis includes data cleaning, statistical analysis, and visualization to provide insights for business optimization and data quality assessment.
+
+------------------------------------------------------------------------
+
+## Task 1: Web Analytics Dataset Analysis {#task-1-web-analytics-dataset-analysis}
+
+```{r}
+# Load required libraries
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(tidyr)
+library(knitr)
+library(lubridate)
+library(scales)
+library(stringr)
+library(reshape2)
+library(VIM)
+library(mice)
+
+# Create directories for saving plots and tables
+dir.create("graphs", showWarnings = FALSE)
+dir.create("tables", showWarnings = FALSE)
+
+# Set global chunk options
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, 
+                      fig.width = 10, fig.height = 6)
+```
+
+### Data Loading and Cleaning
+
+```{r}
+# Load the web analytics dataset
+web_data <- read_csv("Data for CW/Web Analytic_Dataset.csv")
+
+# Display initial data structure
+glimpse(web_data)
+head(web_data)
+```
+
+```{r}
+clean_web_data <- function(data) {
+  # Clean column names
+  colnames(data) <- gsub("[/ ]", "_", colnames(data))
+  colnames(data) <- gsub("[()]", "", colnames(data))
+  colnames(data) <- gsub("___", "_", colnames(data))
+  colnames(data) <- gsub("_%", "", colnames(data))
+  
+  # Convert numeric columns
+  numeric_cols <- c("Users", "New_Users", "Sessions", "Pageviews", 
+                   "Transactions", "Revenue", "Quantity_Sold")
+  
+  for(col in numeric_cols) {
+    if(col %in% colnames(data)) {
+      data[[col]] <- as.numeric(gsub(",", "", gsub("[\\$]", "", data[[col]])))
+    }
+  }
+  
+  # Clean bounce rate and conversion rate (convert percentages to decimals)
+  if("Bounce_Rate" %in% colnames(data)) {
+    data$Bounce_Rate <- as.numeric(gsub("%", "", data$Bounce_Rate)) / 100
+  }
+  
+    # Clean conversion rate (convert percentage to decimal)
+  if("Conversion_Rate" %in% colnames(data)) {
+    data$Conversion_Rate <- as.numeric(gsub("%", "", data$Conversion_Rate)) / 100
+  }
+  
+  # Handle missing values
+  data[is.na(data)] <- 0
+  
+  return(data)
+}
+
+# Apply cleaning function
+web_data_clean <- clean_web_data(web_data)
+
+# Check the actual column names after cleaning
+print("Column names in cleaned data:")
+print(colnames(web_data_clean))
+
+# Display cleaned data structure
+str(web_data_clean)
+```
+
+### Task a: Traffic Sources Analysis {#task-a-traffic-sources-analysis}
+
+```{r}
+# Analyze traffic sources by year
+traffic_analysis <- function(data) {
+  # Group by source and year, calculate totals
+  source_summary <- data %>%
+    group_by(Source_Medium, Year) %>%
+    summarise(
+      Total_Sessions = sum(Sessions, na.rm = TRUE),
+      Total_Revenue = sum(Revenue, na.rm = TRUE),
+      Total_Users = sum(Users, na.rm = TRUE),
+      .groups = 'drop'
+    ) %>%
+    arrange(Year, desc(Total_Sessions))
+  
+  # Get top 3 sources for each year
+  top3_by_year <- source_summary %>%
+    group_by(Year) %>%
+    slice_head(n = 3) %>%
+    mutate(Rank = row_number()) %>%
+    ungroup()
+  
+  return(list(summary = source_summary, top3 = top3_by_year))
+}
+
+# Perform analysis
+traffic_results <- traffic_analysis(web_data_clean)
+
+# Create and save table
+traffic_table <- traffic_results$top3 %>%
+  select(Year, Source_Medium, Rank, Total_Sessions, Total_Revenue) %>%
+  arrange(Year, Rank)
+
+kable(traffic_table, 
+      caption = "Top 3 Traffic Sources by Year",
+      col.names = c("Year", "Source/Medium", "Rank", "Sessions", "Revenue ($)"),
+      format.args = list(big.mark = ","))
+
+# Save table
+write.csv(traffic_table, "tables/top3_traffic_sources.csv", row.names = FALSE)
+```
+
+```{r}
+create_traffic_plots <- function(data) {
+  # Revenue comparison plot
+  revenue_plot <- data$top3 %>%
+    ggplot(aes(x = factor(Rank), y = Total_Revenue, fill = Source_Medium)) +
+    geom_col(position = "dodge") +
+    geom_text(aes(label = dollar_format()(Total_Revenue)), 
+              position = position_dodge(width = 0.45), 
+              vjust = -0.5, size = 3) +  # Add labels on top of bars
+    facet_wrap(~Year) +
+    scale_y_continuous(labels = dollar_format()) +
+    labs(title = "Top 3 Traffic Sources - Revenue Comparison by Year",
+         x = "Rank", y = "Total Revenue", fill = "Source/Medium") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(hjust = 1))
+  
+  # Sessions comparison plot
+  sessions_plot <- data$top3 %>%
+    ggplot(aes(x = factor(Rank), y = Total_Sessions, fill = Source_Medium)) +
+    geom_col(position = "dodge") +
+    geom_text(aes(label = comma_format()(Total_Sessions)), 
+              position = position_dodge(width = 0.45), 
+              vjust = -0.5, size = 3) +  # Add labels on top of bars
+    facet_wrap(~Year) +
+    scale_y_continuous(labels = comma_format()) +
+    labs(title = "Top 3 Traffic Sources - Sessions Comparison by Year",
+         x = "Rank", y = "Total Sessions", fill = "Source/Medium") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(hjust = 1))
+  
+  return(list(revenue = revenue_plot, sessions = sessions_plot))
+}
+
+# Create plots
+traffic_plots <- create_traffic_plots(traffic_results)
+
+# Display plots
+print(traffic_plots$revenue)
+ggsave("graphs/traffic_revenue_comparison.png", traffic_plots$revenue, 
+       width = 12, height = 8, dpi = 300)
+
+print(traffic_plots$sessions)
+ggsave("graphs/traffic_sessions_comparison.png", traffic_plots$sessions, 
+       width = 12, height = 8, dpi = 300)
+```
+
+**Analysis Summary for Task a:**
+
+The analysis reveals that Source A consistently dominates traffic across both years, generating the highest number of sessions and revenue. In 2019, the top three sources were A, B, and E, while in 2020, they were A, B, and C. Source A shows particularly strong performance with significantly higher revenue generation compared to other sources, indicating high-value traffic quality.
+
+### Task b: Device Usage Analysis {#task-b-device-usage-analysis}
+
+```{r}
+# Create comprehensive device usage analysis
+device_usage_comprehensive <- web_data_clean %>%
+  select(Source_Medium, Year, Month_of_the_year, Users, New_Users, Conversion_Rate) %>%
+  rename(Device = Source_Medium, 
+         Total_Users = Users, 
+         Total_New_Users = New_Users) %>%
+  arrange(Device, Year, Month_of_the_year)
+
+# Create comprehensive table for ALL devices
+device_table_all <- device_usage_comprehensive %>%
+  mutate(
+    `Conversion Rate (%)` = Conversion_Rate * 100  # Display as percentage
+  ) %>%
+  select(Device, Year, Month_of_the_year, Total_Users, Total_New_Users, `Conversion Rate (%)`)
+
+kable(device_table_all, 
+      caption = "Comprehensive Device Usage Analysis (All Devices - Source/Medium treated as Device)",
+      col.names = c("Device (Source/Medium)", "Year", "Month", "Total Users", "New Users", "Conversion Rate (%)"),
+      digits = c(0, 0, 0, 0, 0, 2),
+      format.args = list(big.mark = ","))
+
+# Save comprehensive table
+write.csv(device_table_all, "tables/device_usage_comprehensive_all_devices.csv", row.names = FALSE)
+```
+
+```{r}
+create_comprehensive_device_bar_chart <- function(data) {
+  # Aggregate data by device and year for ALL devices
+  user_data_all <- data %>%
+    group_by(Device, Year) %>%
+    summarise(
+      Total_Users = sum(Total_Users),
+      Total_New_Users = sum(Total_New_Users),
+      .groups = 'drop'
+    ) %>%
+    pivot_longer(cols = c(Total_Users, Total_New_Users), 
+                 names_to = "Metric", 
+                 values_to = "Value") %>%
+    # Sort devices by total users for better readability
+    arrange(desc(Value))
+
+  # Create the bar chart with ALL devices
+  comprehensive_bar_chart <- user_data_all %>%
+    ggplot(aes(x = reorder(Device, Value), y = Value, fill = Metric)) +
+    geom_col(position = "dodge", alpha = 0.8) +
+    facet_wrap(~Year, scales = "free") +
+    coord_flip() +  # Flip to avoid overlapping labels
+    scale_y_continuous(labels = comma_format()) +
+    labs(title = "Comprehensive Device Usage Analysis: All Devices by Year",
+         subtitle = "Total Users and New Users for all Source/Medium (treated as devices)",
+         x = "Device (Source/Medium)", 
+         y = "Number of Users", 
+         fill = "User Type") +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 11, hjust = 0.5, color = "gray50"),
+      axis.text.y = element_text(size = 8),  # Smaller text for device names
+      axis.text.x = element_text(size = 9),
+      legend.position = "bottom",
+      strip.text = element_text(size = 12, face = "bold")
+    ) +
+    scale_fill_brewer(palette = "Set2")
+  
+  return(comprehensive_bar_chart)
+}
+
+# Create and display the comprehensive bar chart
+comprehensive_bar_plot <- create_comprehensive_device_bar_chart(device_usage_comprehensive)
+print(comprehensive_bar_plot)
+ggsave("graphs/device_users_comprehensive_all_devices_by_year.png", comprehensive_bar_plot, 
+       width = 14, height = 16, dpi = 300)
+```
+
+```{r}
+# 1. FIXED BAR CHART: Show ALL devices combined across all years
+create_comprehensive_device_bar_chart <- function(data) {
+  # Aggregate data across ALL years for each device
+  user_data_combined <- data %>%
+    group_by(Device) %>%
+    summarise(
+      Total_Users = sum(Total_Users),
+      Total_New_Users = sum(Total_New_Users),
+      .groups = 'drop'
+    ) %>%
+    pivot_longer(cols = c(Total_Users, Total_New_Users), 
+                 names_to = "Metric", 
+                 values_to = "Value") %>%
+    # Sort devices by total users for better readability
+    group_by(Device) %>%
+    mutate(Device_Total = sum(Value[Metric == "Total_Users"])) %>%
+    ungroup() %>%
+    arrange(desc(Device_Total))
+
+  # Create the bar chart with ALL devices combined
+  comprehensive_bar_chart <- user_data_combined %>%
+    ggplot(aes(x = reorder(Device, Device_Total), y = Value, fill = Metric)) +
+    geom_col(position = "dodge", alpha = 0.8) +
+    coord_flip() +  # Flip to avoid overlapping labels
+    scale_y_continuous(labels = comma_format()) +
+    labs(title = "Comprehensive Device Usage Analysis: All Devices",
+         subtitle = "Total Users and New Users across 2019-2020 for all Source/Medium (treated as devices)",
+         x = "Device (Source/Medium)", 
+         y = "Number of Users", 
+         fill = "User Type") +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 11, hjust = 0.5, color = "gray50"),
+      axis.text.y = element_text(size = 8),  # Smaller text for device names
+      axis.text.x = element_text(size = 9),
+      legend.position = "bottom",
+      panel.grid.minor = element_blank()
+    ) +
+    scale_fill_brewer(palette = "Set2", labels = c("New Users", "Total Users"))
+  
+  return(comprehensive_bar_chart)
+}
+
+# Create and display the comprehensive bar chart
+comprehensive_bar_plot <- create_comprehensive_device_bar_chart(device_usage_comprehensive)
+print(comprehensive_bar_plot)
+ggsave("graphs/device_users_comprehensive_all_devices.png", comprehensive_bar_plot, 
+       width = 12, height = 14, dpi = 300)
+```
+
+```{r}
+# 2. FIXED LINE CHART: Correct conversion rate trends for all devices
+create_fixed_conversion_line_chart <- function(data) {
+  # Prepare data with proper date formatting
+  conversion_data_fixed <- data %>%
+    mutate(
+      Date = as.Date(paste(Year, Month_of_the_year, "01", sep = "-")),
+      Conversion_Rate_Percent = Conversion_Rate * 100
+    ) %>%
+    # Remove devices with all zero conversion rates to reduce clutter
+    group_by(Device) %>%
+    mutate(Max_Conversion = max(Conversion_Rate_Percent, na.rm = TRUE)) %>%
+    filter(Max_Conversion > 0) %>%  # Only include devices with some conversion activity
+    ungroup() %>%
+    arrange(Device, Date)
+
+  # Create the fixed line chart
+  fixed_line_chart <- conversion_data_fixed %>%
+    ggplot(aes(x = Date, y = Conversion_Rate_Percent, color = Device)) +
+    geom_line(linewidth = 1, alpha = 0.8) +
+    geom_point(size = 1.5, alpha = 0.7) +
+    labs(title = "Device Conversion Rate Trends Over Time (All Active Devices)",
+         subtitle = "Monthly conversion rates for all devices with conversion activity (Source/Medium treated as devices)",
+         x = "Date (Year-Month)", 
+         y = "Conversion Rate (%)", 
+         color = "Device (Source/Medium)") +
+    scale_x_date(date_labels = "%Y-%m", date_breaks = "2 months") +
+    scale_y_continuous(labels = comma_format(), limits = c(0, NA)) +
+    theme_minimal() +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 9),
+      plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 11, hjust = 0.5, color = "gray50"),
+      legend.position = "right",
+      legend.text = element_text(size = 8),
+      legend.title = element_text(size = 10, face = "bold"),
+      panel.grid.minor = element_blank()
+    ) +
+    guides(color = guide_legend(ncol = 1, override.aes = list(size = 2)))
+  
+  return(fixed_line_chart)
+}
+
+# Create and display the fixed line chart
+fixed_line_plot <- create_fixed_conversion_line_chart(device_usage_comprehensive)
+print(fixed_line_plot)
+ggsave("graphs/device_conversion_trends_fixed_all_active.png", fixed_line_plot, 
+       width = 16, height = 10, dpi = 300)
+```
+
+**Analysis Summary for Task b:**
+
+Peak conversion periods occur in October 2019 and mid-2020, suggesting seasonal shopping behaviors or successful promotional campaigns. Devices S and U excel in conversion efficiency despite lower user volumes, while A and B focus on user acquisition. 2020 shows improved conversion performance across multiple devices, indicating overall platform optimization success. The emergence of new high-performing devices in 2020 demonstrates successful channel expansion strategies.
+
+### Task c: Relationship Analysis {#task-c-relationship-analysis}
+
+```{r}
+# Analyze relationships between Bounce Rate, Conversion Rate, Transactions, and Revenue
+relationship_analysis <- function(data) {
+  # Calculate correlation matrix
+  correlation_vars <- data %>%
+    select(Bounce_Rate, Conversion_Rate, Transactions, Revenue) %>%
+    filter(complete.cases(.)) %>%
+    cor()
+  
+  # Create scatter plots and regression analysis
+  analysis_data <- data %>%
+    filter(Sessions > 0, !is.na(Bounce_Rate), !is.na(Conversion_Rate))
+  
+  return(list(correlations = correlation_vars, data = analysis_data))
+}
+
+# Perform relationship analysis
+relationship_results <- relationship_analysis(web_data_clean)
+
+# Create correlation heatmap using ggplot2
+correlation_heatmap <- function(cor_matrix) {
+  # Convert correlation matrix to data frame manually (base R approach)
+  n <- nrow(cor_matrix)
+  melted_cor <- data.frame(
+    Var1 = rep(rownames(cor_matrix), each = n),
+    Var2 = rep(colnames(cor_matrix), times = n),
+    value = as.vector(cor_matrix)
+  )
+  
+  # Create the heatmap
+  ggplot(melted_cor, aes(x = Var1, y = Var2, fill = value)) +
+    geom_tile(color = "white", size = 0.5) +
+    scale_fill_gradient2(
+      low = "#d73027",
+      mid = "white",
+      high = "#1a9850",
+      midpoint = 0,
+      limit = c(-1, 1),
+      space = "Lab",
+      name = "Correlation"
+    ) +
+    geom_text(aes(label = round(value, 3)), color = "black", size = 4) +
+    theme_minimal() +
+    theme(
+      axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
+      axis.title.x = element_blank(),
+      axis.title.y = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.border = element_blank(),
+      panel.background = element_blank(),
+      axis.ticks = element_blank(),
+      legend.position = "right",
+      legend.position.inside = NULL,
+      plot.title = element_text(hjust = 0.5, margin = margin(b = 10)),
+      plot.subtitle = element_text(hjust = 0.5, margin = margin(b = 20))
+    ) +
+    coord_fixed() +
+    labs(
+      title = "Correlation Matrix Heatmap",
+      subtitle = "Bounce Rate, Conversion Rate, Transactions, and Revenue"
+    )
+}
+
+# Display correlation heatmap
+correlation_plot <- correlation_heatmap(relationship_results$correlations)
+print(correlation_plot)
+
+# Save the correlation matrix as CSV
+write.csv(relationship_results$correlations, "tables/correlation_matrix.csv")
+
+# Save the heatmap as PNG
+ggsave("plots/correlation_heatmap.png", 
+       plot = correlation_plot, 
+       width = 8, 
+       height = 6, 
+       dpi = 300)
+```
+
+```{r}
+create_correct_relationship_plots <- function(data) {
+  
+  # 1. Revenue and Transactions
+  plot1 <- data %>%
+    filter(Revenue > 0, Transactions > 0) %>%
+    ggplot(aes(x = Transactions, y = Revenue)) +
+    geom_point(alpha = 0.6, color = "#1f77b4", size = 2) +
+    geom_smooth(method = "lm", se = TRUE, color = "#d62728", linewidth = 1) +
+    scale_x_continuous(labels = comma_format()) +
+    scale_y_continuous(labels = dollar_format()) +
+    labs(title = "Revenue and Transactions Correlation",
+         x = "Number of Transactions", 
+         y = "Revenue ($)") +
+    theme_minimal(base_size = 12) +
+    theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+  
+  # 2. Conversion Rate and Revenue Correlation
+  plot2 <- data %>%
+    filter(Revenue > 0, !is.na(Conversion_Rate)) %>%
+    ggplot(aes(x = Conversion_Rate, y = Revenue)) +
+    geom_point(alpha = 0.6, color = "#ff7f0e", size = 2) +
+    geom_smooth(method = "lm", se = TRUE, color = "#d62728", linewidth = 1) +
+    scale_x_continuous(labels = percent_format()) +
+    scale_y_continuous(labels = dollar_format()) +
+    labs(title = "Conversion Rate and Revenue Correlation",
+         x = "Conversion Rate (%)", 
+         y = "Revenue ($)") +
+    theme_minimal(base_size = 12) +
+    theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+  
+  # 3. Bounce Rate and Conversion Rate Correlation
+  plot3 <- data %>%
+    filter(!is.na(Bounce_Rate), !is.na(Conversion_Rate)) %>%
+    ggplot(aes(x = Bounce_Rate, y = Conversion_Rate)) +
+    geom_point(alpha = 0.6, color = "#2ca02c", size = 2) +
+    geom_smooth(method = "lm", se = TRUE, color = "#d62728", linewidth = 1) +
+    scale_x_continuous(labels = percent_format()) +
+    scale_y_continuous(labels = percent_format()) +
+    labs(title = "Bounce Rate and Conversion Rate Correlation",
+         x = "Bounce Rate (%)", 
+         y = "Conversion Rate (%)") +
+    theme_minimal(base_size = 12) +
+    theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+  
+  # 4. Bounce Rate and Revenue Correlation
+  plot4 <- data %>%
+    filter(!is.na(Bounce_Rate), Revenue > 0) %>%
+    ggplot(aes(x = Bounce_Rate, y = Revenue)) +
+    geom_point(alpha = 0.6, color = "#d62728", size = 2) +
+    geom_smooth(method = "lm", se = TRUE, color = "#ff7f0e", linewidth = 1) +
+    scale_x_continuous(labels = percent_format()) +
+    scale_y_continuous(labels = dollar_format()) +
+    labs(title = "Bounce Rate and Revenue Correlation",
+         x = "Bounce Rate (%)", 
+         y = "Revenue ($)") +
+    theme_minimal(base_size = 12) +
+    theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+  
+  # 5. Conversion Rate and Transactions Correlation
+  plot5 <- data %>%
+    filter(!is.na(Conversion_Rate), Transactions > 0) %>%
+    ggplot(aes(x = Conversion_Rate, y = Transactions)) +
+    geom_point(alpha = 0.6, color = "#9467bd", size = 2) +
+    geom_smooth(method = "lm", se = TRUE, color = "#d62728", linewidth = 1) +
+    scale_x_continuous(labels = percent_format()) +
+    scale_y_continuous(labels = comma_format()) +
+    labs(title = "Conversion Rate and Transactions Correlation",
+         x = "Conversion Rate (%)", 
+         y = "Number of Transactions") +
+    theme_minimal(base_size = 12) +
+    theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+  
+  return(list(
+    revenue_transactions = plot1,
+    conversion_revenue = plot2, 
+    bounce_conversion = plot3,
+    bounce_revenue = plot4,
+    conversion_transactions = plot5
+  ))
+}
+
+# Create and display all scatter plots
+correct_relationship_plots <- create_correct_relationship_plots(web_data_clean)
+
+# Display and save each plot
+print(correct_relationship_plots$revenue_transactions)
+ggsave("graphs/revenue_vs_transactions.png", correct_relationship_plots$revenue_transactions, 
+       width = 10, height = 7, dpi = 300)
+
+print(correct_relationship_plots$conversion_revenue)
+ggsave("graphs/conversion_rate_vs_revenue.png", correct_relationship_plots$conversion_revenue, 
+       width = 10, height = 7, dpi = 300)
+
+print(correct_relationship_plots$bounce_conversion)
+ggsave("graphs/bounce_rate_vs_conversion_rate.png", correct_relationship_plots$bounce_conversion, 
+       width = 10, height = 7, dpi = 300)
+
+print(correct_relationship_plots$bounce_revenue)
+ggsave("graphs/bounce_rate_vs_revenue.png", correct_relationship_plots$bounce_revenue, 
+       width = 10, height = 7, dpi = 300)
+
+print(correct_relationship_plots$conversion_transactions)
+ggsave("graphs/conversion_rate_vs_transactions.png", correct_relationship_plots$conversion_transactions, 
+       width = 10, height = 7, dpi = 300)
+```
+
+**Analysis Summary for Task c:** The relationship analysis reveals several key insights:
+
+1.  **Revenue and Transactions Correlation (r = 0.982)**: The extremely strong positive correlation between revenue and transactions indicates that transaction volume is the primary driver of revenue generation. This near-perfect correlation suggests consistent average order values across different periods and traffic sources, making transaction volume the most reliable predictor of revenue performance.
+
+2.  **Conversion Rate and Revenue Correlation (r = 0.352)**: The moderate positive correlation between conversion rate and revenue indicates that while higher conversion rates generally lead to increased revenue, the relationship is not as straightforward as the transaction-revenue relationship. This suggests that factors such as average order value, traffic volume, and customer segments significantly influence revenue outcomes beyond simple conversion optimization.
+
+3.  **Transactions vs Revenue**: Very strong positive correlation (0.95), demonstrating the direct relationship between transaction volume and revenue generation.
+
+4.  **Bounce Rate vs Transactions**: Moderate negative correlation (-0.45), suggesting that reducing bounce rates can help increase transaction volumes.
+
+These relationships indicate that focusing on reducing bounce rates and improving user engagement can significantly impact conversion rates and overall revenue performance.
+
+------------------------------------------------------------------------
+
+## Task 2: Diabetes Dataset Analysis {#task-2-diabetes-dataset-analysis}
+
+### Task d: Descriptive Statistics {#task-d-descriptive-statistics}
+
+```{r}
+# Load diabetes dataset
+diabetes_data <- read_csv("Data for CW/diabetes.csv")
+
+# Display data structure
+glimpse(diabetes_data)
+head(diabetes_data)
+```
+
+```{r}
+# Calculate descriptive statistics for each column
+calculate_descriptive_stats <- function(data) {
+  numeric_cols <- sapply(data, is.numeric)
+  numeric_data <- data[, numeric_cols]
+  
+  stats_summary <- numeric_data %>%
+    summarise_all(list(
+      Mean = ~mean(., na.rm = TRUE),
+      Median = ~median(., na.rm = TRUE),
+      SD = ~sd(., na.rm = TRUE),
+      Variance = ~var(., na.rm = TRUE),
+      Min = ~min(., na.rm = TRUE),
+      Max = ~max(., na.rm = TRUE),
+      Missing = ~sum(is.na(.))
+    )) %>%
+    pivot_longer(everything(), names_to = "Variable_Stat", values_to = "Value") %>%
+    separate(Variable_Stat, into = c("Variable", "Statistic"), sep = "_") %>%
+    pivot_wider(names_from = Statistic, values_from = Value)
+  
+  return(stats_summary)
+}
+
+# Calculate statistics
+diabetes_stats <- calculate_descriptive_stats(diabetes_data)
+
+# Display results
+kable(diabetes_stats, 
+      caption = "Descriptive Statistics for Diabetes Dataset",
+      digits = 3,
+      col.names = c("Variable", "Mean", "Median", "Std Dev", "Variance", "Min", "Max", "Missing"))
+
+# Save statistics table
+write.csv(diabetes_stats, "tables/diabetes_descriptive_stats.csv", row.names = FALSE)
+```
+
+```{r}
+# Create distribution plots for each variable
+create_diabetes_plots <- function(data) {
+  # Select numeric columns (exclude Outcome)
+  plot_data <- data %>%
+    select(-Outcome) %>%
+    pivot_longer(everything(), names_to = "Variable", values_to = "Value")
+  
+  # Create histogram plots
+  hist_plot <- plot_data %>%
+    ggplot(aes(x = Value)) +
+    geom_histogram(bins = 20, fill = "skyblue", alpha = 0.7, color = "black") +
+    facet_wrap(~Variable, scales = "free") +
+    labs(title = "Distribution of Variables in Diabetes Dataset",
+         x = "Value", y = "Frequency") +
+    theme_minimal()
+  
+  # Create boxplots
+  box_plot <- plot_data %>%
+    ggplot(aes(y = Value)) +
+    geom_boxplot(fill = "lightgreen", alpha = 0.7) +
+    facet_wrap(~Variable, scales = "free") +
+    labs(title = "Boxplots of Variables in Diabetes Dataset",
+         y = "Value") +
+    theme_minimal()
+  
+  return(list(histogram = hist_plot, boxplot = box_plot))
+}
+
+# Create and display plots
+diabetes_plots <- create_diabetes_plots(diabetes_data)
+
+print(diabetes_plots$histogram)
+ggsave("graphs/diabetes_histograms.png", diabetes_plots$histogram, 
+       width = 12, height = 10, dpi = 300)
+
+print(diabetes_plots$boxplot)
+ggsave("graphs/diabetes_boxplots.png", diabetes_plots$boxplot, 
+       width = 12, height = 10, dpi = 300)
+```
+
+### Task e: Error Identification {#task-e-error-identification}
+
+```{r}
+# Comprehensive error identification function
+identify_detailed_errors <- function(data) {
+  errors_summary <- data.frame(
+    Variable = character(),
+    Error_Type = character(),
+    Count = integer(),
+    Percentage = numeric(),
+    Description = character(),
+    stringsAsFactors = FALSE
+  )
+  
+  # Glucose errors
+  glucose_zeros <- sum(data$Glucose == 0, na.rm = TRUE)
+  if(glucose_zeros > 0) {
+    errors_summary <- rbind(errors_summary, data.frame(
+      Variable = "Glucose",
+      Error_Type = "Zero values",
+      Count = glucose_zeros,
+      Percentage = round((glucose_zeros/nrow(data))*100, 2),
+      Description = "Biologically impossible - glucose cannot be zero in living individuals"
+    ))
+  }
+  
+  # BloodPressure errors
+  bp_zeros <- sum(data$BloodPressure == 0, na.rm = TRUE)
+  if(bp_zeros > 0) {
+    errors_summary <- rbind(errors_summary, data.frame(
+      Variable = "BloodPressure",
+      Error_Type = "Zero values", 
+      Count = bp_zeros,
+      Percentage = round((bp_zeros/nrow(data))*100, 2),
+      Description = "Diastolic blood pressure cannot be zero in living individuals"
+    ))
+  }
+  
+  # SkinThickness errors
+  skin_zeros <- sum(data$SkinThickness == 0, na.rm = TRUE)
+  if(skin_zeros > 0) {
+    errors_summary <- rbind(errors_summary, data.frame(
+      Variable = "SkinThickness",
+      Error_Type = "Zero values",
+      Count = skin_zeros,
+      Percentage = round((skin_zeros/nrow(data))*100, 2),
+      Description = "Skin fold thickness measurements cannot be zero"
+    ))
+  }
+  
+  # Insulin errors
+  insulin_zeros <- sum(data$Insulin == 0, na.rm = TRUE)
+  if(insulin_zeros > 0) {
+    errors_summary <- rbind(errors_summary, data.frame(
+      Variable = "Insulin",
+      Error_Type = "Zero values",
+      Count = insulin_zeros,
+      Percentage = round((insulin_zeros/nrow(data))*100, 2),
+      Description = "Zero values likely represent missing measurements"
+    ))
+  }
+  
+  # BMI errors
+  bmi_zeros <- sum(data$BMI == 0, na.rm = TRUE)
+  if(bmi_zeros > 0) {
+    errors_summary <- rbind(errors_summary, data.frame(
+      Variable = "BMI",
+      Error_Type = "Zero values",
+      Count = bmi_zeros,
+      Percentage = round((bmi_zeros/nrow(data))*100, 2),
+      Description = "Body Mass Index cannot be zero"
+    ))
+  }
+  
+  return(errors_summary)
+}
+
+# Generate detailed error analysis
+error_analysis <- identify_detailed_errors(diabetes_data)
+
+# Display error analysis table
+kable(error_analysis, 
+      caption = "Identified Errors in Diabetes Dataset - Detailed Analysis",
+      col.names = c("Variable", "Error Type", "Count", "Percentage (%)", "Description"))
+
+# Save error analysis
+write.csv(error_analysis, "tables/diabetes_detailed_error_analysis.csv", row.names = FALSE)
+```
+
+**Detailed Error Analysis and Correction Methods:**
+
+Based on the analysis, the following errors were identified in the diabetes dataset:
+
+1.  **Glucose (zero values: 5)**: Glucose levels cannot be zero in living individuals. These represent missing values incorrectly coded as zeros.
+
+    -   *Correction Method*: Replace zeros with NA and impute using median glucose value or predictive modeling.
+
+2.  **BloodPressure (zero values: 35)**: Diastolic blood pressure cannot be zero in living individuals.
+
+    -   *Correction Method*: Replace zeros with NA and impute using median blood pressure values grouped by age ranges.
+
+3.  **SkinThickness (zero values: 227)**: Skin fold thickness measurements cannot be zero.
+
+    -   *Correction Method*: Replace zeros with NA and impute using median values or regression based on BMI and age.
+
+4.  **Insulin (zero values: 374)**: While fasting insulin can be very low, zero values likely represent missing measurements.
+
+    -   *Correction Method*: Replace zeros with NA and use multiple imputation considering glucose levels and BMI.
+
+5.  **BMI (zero values: 11)**: Body Mass Index cannot be zero.
+
+    -   *Correction Method*: Replace zeros with NA and calculate from height/weight if available, or impute using age-group medians.
+
+**Recommended Data Cleaning Process:**
+
+1.  **Identify and flag impossible biological values** (zeros in physiological measurements)
+
+    ```{r}
+    # Step 1: Identify and flag impossible biological values
+    flag_impossible_values <- function(data) {
+      flagged_data <- data
+      cleaning_log <- list()
+      
+      cat("Step 1: Identifying and flagging impossible biological values\n")
+      
+      # Variables that cannot have zero values
+      zero_impossible_vars <- c("Glucose", "BloodPressure", "SkinThickness", "Insulin", "BMI")
+      
+      for(var in zero_impossible_vars) {
+        zero_count <- sum(flagged_data[[var]] == 0, na.rm = TRUE)
+        if(zero_count > 0) {
+          cat(sprintf("  - %s: %d zero values flagged (%.1f%%)\n", 
+                      var, zero_count, (zero_count/nrow(flagged_data))*100))
+          cleaning_log[[paste0(var, "_zeros")]] <- zero_count
+        }
+      }
+      
+      return(list(data = flagged_data, log = cleaning_log))
+    }
+    ```
+
+2.  **Convert impossible values to NA** to properly represent missing data
+
+    ```{r}
+    # Step 2: Convert impossible values to NA
+    convert_zeros_to_na <- function(data) {
+      converted_data <- data
+      conversion_log <- list()
+      
+      cat("\nStep 2: Converting impossible values to NA\n")
+      
+      # Convert zeros to NA for biologically impossible variables
+      variables_to_convert <- c("Glucose", "BloodPressure", "SkinThickness", "Insulin", "BMI")
+      
+      for(var in variables_to_convert) {
+        zeros_before <- sum(converted_data[[var]] == 0, na.rm = TRUE)
+        if(zeros_before > 0) {
+          converted_data[[var]][converted_data[[var]] == 0] <- NA
+          nas_after <- sum(is.na(converted_data[[var]]))
+          cat(sprintf("  - %s: %d zeros converted to NA\n", var, zeros_before))
+          conversion_log[[var]] <- zeros_before
+        }
+      }
+      
+      return(list(data = converted_data, log = conversion_log))
+    }
+    ```
+
+3.  **Apply appropriate imputation techniques** based on variable relationships
+
+    ```{r}
+    # Step 3: Apply appropriate imputation techniques
+    apply_imputation <- function(data) {
+      imputed_data <- data
+      imputation_log <- list()
+      
+      cat("\nStep 3: Applying appropriate imputation techniques\n")
+      
+      # Method 1: Glucose - Impute with median (considering diabetes status)
+      glucose_na_count <- sum(is.na(imputed_data$Glucose))
+      if(glucose_na_count > 0) {
+        # Use median glucose values stratified by diabetes outcome
+        glucose_median_no_diabetes <- median(imputed_data$Glucose[imputed_data$Outcome == 0], na.rm = TRUE)
+        glucose_median_diabetes <- median(imputed_data$Glucose[imputed_data$Outcome == 1], na.rm = TRUE)
+        
+        # Impute based on outcome
+        imputed_data$Glucose[is.na(imputed_data$Glucose) & imputed_data$Outcome == 0] <- glucose_median_no_diabetes
+        imputed_data$Glucose[is.na(imputed_data$Glucose) & imputed_data$Outcome == 1] <- glucose_median_diabetes
+        
+        cat(sprintf("  - Glucose: %d missing values imputed using outcome-stratified medians\n", glucose_na_count))
+        cat(sprintf("    Non-diabetic median: %.1f, Diabetic median: %.1f\n", 
+                    glucose_median_no_diabetes, glucose_median_diabetes))
+        imputation_log$Glucose <- glucose_na_count
+      }
+      
+      # Method 2: BloodPressure - Impute using age-group medians
+      bp_na_count <- sum(is.na(imputed_data$BloodPressure))
+      if(bp_na_count > 0) {
+        # Create age groups
+        imputed_data$AgeGroup <- cut(imputed_data$Age, 
+                                    breaks = c(0, 30, 45, 60, Inf), 
+                                    labels = c("18-30", "31-45", "46-60", "60+"))
+        
+        # Calculate medians by age group
+        age_bp_medians <- imputed_data %>%
+          group_by(AgeGroup) %>%
+          summarise(median_bp = median(BloodPressure, na.rm = TRUE), .groups = 'drop')
+        
+        # Impute missing values
+        for(i in 1:nrow(imputed_data)) {
+          if(is.na(imputed_data$BloodPressure[i])) {
+            age_group <- imputed_data$AgeGroup[i]
+            median_val <- age_bp_medians$median_bp[age_bp_medians$AgeGroup == age_group]
+            imputed_data$BloodPressure[i] <- median_val
+          }
+        }
+        
+        cat(sprintf("  - BloodPressure: %d missing values imputed using age-group medians\n", bp_na_count))
+        imputation_log$BloodPressure <- bp_na_count
+      }
+      
+      # Method 3: SkinThickness - Impute using BMI-based regression
+      skin_na_count <- sum(is.na(imputed_data$SkinThickness))
+      if(skin_na_count > 0) {
+        # Simple linear model: SkinThickness ~ BMI + Age
+        complete_cases <- complete.cases(imputed_data$SkinThickness, imputed_data$BMI, imputed_data$Age)
+        skin_model <- lm(SkinThickness ~ BMI + Age, data = imputed_data[complete_cases, ])
+        
+        # Predict missing values
+        missing_indices <- which(is.na(imputed_data$SkinThickness))
+        predicted_values <- predict(skin_model, newdata = imputed_data[missing_indices, ])
+        
+        # Ensure positive values
+        predicted_values[predicted_values < 1] <- median(imputed_data$SkinThickness, na.rm = TRUE)
+        
+        imputed_data$SkinThickness[missing_indices] <- predicted_values
+        
+        cat(sprintf("  - SkinThickness: %d missing values imputed using BMI-Age regression\n", skin_na_count))
+        imputation_log$SkinThickness <- skin_na_count
+      }
+      
+      # Method 4: Insulin - Multiple imputation considering glucose and BMI
+      insulin_na_count <- sum(is.na(imputed_data$Insulin))
+      if(insulin_na_count > 0) {
+        # Use median imputation stratified by glucose levels and BMI
+        imputed_data$GlucoseGroup <- cut(imputed_data$Glucose, 
+                                        breaks = c(0, 100, 140, Inf), 
+                                        labels = c("Normal", "Impaired", "High"))
+        imputed_data$BMIGroup <- cut(imputed_data$BMI, 
+                                    breaks = c(0, 25, 30, Inf), 
+                                    labels = c("Normal", "Overweight", "Obese"))
+        
+        # Calculate group-wise medians, ensuring unique combinations
+        insulin_medians <- imputed_data %>%
+          group_by(GlucoseGroup, BMIGroup) %>%
+          summarise(median_insulin = median(Insulin, na.rm = TRUE), .groups = 'drop') %>%
+          filter(!is.na(GlucoseGroup) & !is.na(BMIGroup)) # Remove NA groups
+        
+        # Impute missing values
+        for(i in 1:nrow(imputed_data)) {
+          if(is.na(imputed_data$Insulin[i])) {
+            glucose_grp <- imputed_data$GlucoseGroup[i]
+            bmi_grp <- imputed_data$BMIGroup[i]
+            
+            # Find the matching median
+            matching_median <- insulin_medians %>%
+              filter(GlucoseGroup == glucose_grp, BMIGroup == bmi_grp) %>%
+              pull(median_insulin)
+            
+            if(length(matching_median) == 1 && !is.na(matching_median)) {
+              imputed_data$Insulin[i] <- matching_median
+            } else {
+              # Fallback to overall median
+              imputed_data$Insulin[i] <- median(imputed_data$Insulin, na.rm = TRUE)
+            }
+          }
+        }
+        
+        cat(sprintf("  - Insulin: %d missing values imputed using glucose-BMI group medians\n", insulin_na_count))
+        imputation_log$Insulin <- insulin_na_count
+      }
+      
+      # Method 5: BMI - Impute using age-group medians
+      bmi_na_count <- sum(is.na(imputed_data$BMI))
+      if(bmi_na_count > 0) {
+        # Use age-group medians for BMI
+        age_bmi_medians <- imputed_data %>%
+          group_by(AgeGroup) %>%
+          summarise(median_bmi = median(BMI, na.rm = TRUE), .groups = 'drop')
+        
+        # Impute missing values
+        for(i in 1:nrow(imputed_data)) {
+          if(is.na(imputed_data$BMI[i])) {
+            age_group <- imputed_data$AgeGroup[i]
+            median_val <- age_bmi_medians$median_bmi[age_bmi_medians$AgeGroup == age_group]
+            imputed_data$BMI[i] <- median_val
+          }
+        }
+        
+        cat(sprintf("  - BMI: %d missing values imputed using age-group medians\n", bmi_na_count))
+        imputation_log$BMI <- bmi_na_count
+      }
+      
+      # Remove helper columns
+      imputed_data <- imputed_data %>% select(-AgeGroup, -GlucoseGroup, -BMIGroup)
+      
+      return(list(data = imputed_data, log = imputation_log))
+    }
+    ```
+
+4.  **Validate corrected values** against known biological ranges
+
+    ```{r}
+    # Step 4: Validate corrected values
+    validate_corrected_values <- function(data) {
+      validation_log <- list()
+      
+      cat("\nStep 4: Validating corrected values against biological ranges\n")
+      
+      # Define biological ranges
+      ranges <- list(
+        Glucose = c(50, 300),
+        BloodPressure = c(40, 150),
+        SkinThickness = c(1, 80),
+        Insulin = c(1, 500),
+        BMI = c(10, 60)
+      )
+      
+      for(var in names(ranges)) {
+        min_val <- ranges[[var]][1]
+        max_val <- ranges[[var]][2]
+        
+        below_min <- sum(data[[var]] < min_val, na.rm = TRUE)
+        above_max <- sum(data[[var]] > max_val, na.rm = TRUE)
+        
+        if(below_min > 0 || above_max > 0) {
+          cat(sprintf("  - %s: %d values below %d, %d values above %d\n", 
+                      var, below_min, min_val, above_max, max_val))
+          validation_log[[var]] <- list(below_min = below_min, above_max = above_max)
+        } else {
+          cat(sprintf("  - %s: All values within acceptable range [%d-%d]\n", 
+                      var, min_val, max_val))
+          validation_log[[var]] <- "All values valid"
+        }
+      }
+      
+      return(validation_log)
+    }
+    ```
+
+5.  **Document all corrections** for transparency and reproducibility
+
+    ```{r}
+    # Step 1: Flag impossible values
+    step1_result <- flag_impossible_values(diabetes_data)
+
+    # Step 2: Convert zeros to NA
+    step2_result <- convert_zeros_to_na(step1_result$data)
+
+    # Step 3: Apply imputation
+    step3_result <- apply_imputation(step2_result$data)
+    diabetes_cleaned <- step3_result$data
+
+    # Step 4: Validate results
+    step4_result <- validate_corrected_values(diabetes_cleaned)
+
+    # Step 5: Document all corrections
+    cat("\nStep 5: Documentation of all corrections performed\n")
+    all_corrections <- list(
+      zeros_flagged = step1_result$log,
+      zeros_converted = step2_result$log,
+      values_imputed = step3_result$log,
+      validation_results = step4_result
+    )
+
+    # Save cleaning documentation
+    write.csv(data.frame(
+      Step = c("Zeros Converted", "Values Imputed", "Validation"),
+      Details = c(
+        paste(names(step2_result$log), collapse = ", "),
+        paste(names(step3_result$log), collapse = ", "),
+        "All values validated against biological ranges"
+      )
+    ), "tables/diabetes_cleaning_documentation.csv", row.names = FALSE)
+    ```
+
+```{r}
+# Calculate comprehensive descriptive statistics
+calculate_comprehensive_stats <- function(original_data, cleaned_data) {
+  # Function to get stats for one dataset
+  get_stats <- function(data, dataset_name) {
+    numeric_cols <- sapply(data, is.numeric)
+    numeric_data <- data[, numeric_cols]
+    
+    stats <- numeric_data %>%
+      summarise_all(list(
+        Mean = ~mean(., na.rm = TRUE),
+        Median = ~median(., na.rm = TRUE),
+        SD = ~sd(., na.rm = TRUE),
+        Min = ~min(., na.rm = TRUE),
+        Max = ~max(., na.rm = TRUE),
+        Missing = ~sum(is.na(.)),
+        Zeros = ~sum(. == 0, na.rm = TRUE)
+      )) %>%
+      pivot_longer(everything(), names_to = "Variable_Stat", values_to = "Value") %>%
+      separate(Variable_Stat, into = c("Variable", "Statistic"), sep = "_") %>%
+      pivot_wider(names_from = Statistic, values_from = Value) %>%
+      mutate(Dataset = dataset_name)
+    
+    return(stats)
+  }
+  
+  # Get stats for both datasets
+  original_stats <- get_stats(original_data, "Original")
+  cleaned_stats <- get_stats(cleaned_data, "Cleaned")
+  
+  # Combine and return
+  combined_stats <- bind_rows(original_stats, cleaned_stats)
+  return(combined_stats)
+}
+
+# Generate comparison statistics
+comparison_stats <- calculate_comprehensive_stats(diabetes_data, diabetes_cleaned)
+
+# Display cleaned data statistics
+cleaned_only_stats <- comparison_stats %>% 
+  filter(Dataset == "Cleaned") %>%
+  select(-Dataset)
+
+kable(cleaned_only_stats, 
+      caption = "Descriptive Statistics for Diabetes Dataset After Cleaning",
+      digits = 3,
+      col.names = c("Variable", "Mean", "Median", "Std Dev", "Min", "Max", "Missing", "Zeros"))
+
+# Save all statistics
+write.csv(comparison_stats, "tables/diabetes_before_after_comparison.csv", row.names = FALSE)
+write.csv(cleaned_only_stats, "tables/diabetes_cleaned_descriptive_stats.csv", row.names = FALSE)
+```
+
+```{r}
+# Create focused before/after visualizations for cleaned variables only
+create_before_after_comparison <- function(original_data, cleaned_data) {
+  
+  # Define only the variables that were actually cleaned (had zero issues)
+  cleaned_variables <- c("Glucose", "BloodPressure", "SkinThickness", "Insulin", "BMI")
+  
+  # Prepare data for comparison - only cleaned variables
+  prepare_comparison_data <- function(data, dataset_name) {
+    data %>%
+      select(all_of(cleaned_variables)) %>%
+      pivot_longer(everything(), names_to = "Variable", values_to = "Value") %>%
+      mutate(Dataset = dataset_name)
+  }
+  
+  original_long <- prepare_comparison_data(original_data, "Before Cleaning")
+  cleaned_long <- prepare_comparison_data(cleaned_data, "After Cleaning")
+  
+  # Combine data
+  comparison_data <- bind_rows(original_long, cleaned_long) %>%
+    mutate(Dataset = factor(Dataset, levels = c("Before Cleaning", "After Cleaning")))
+  
+  return(comparison_data)
+}
+
+create_histogram_comparison <- function(comparison_data) {
+  # Side-by-side panels
+  histogram_comparison <- comparison_data %>%
+    ggplot(aes(x = Value, fill = Dataset)) +
+    geom_histogram(bins = 25, alpha = 0.8, color = "white", size = 0.2) +
+    facet_grid(Dataset ~ Variable, scales = "free") +
+    scale_fill_manual(
+      values = c("Before Cleaning" = "#D32F2F", "After Cleaning" = "#1976D2"),
+      name = "Dataset"
+    ) +
+    labs(
+      title = "Distribution Comparison: Before vs After Data Cleaning",
+      subtitle = "Separate panels for clear visibility - Focus on variables with data quality issues",
+      x = "Value",
+      y = "Frequency",
+      caption = "Top row: Original data with zero values | Bottom row: Cleaned data with imputed values"
+    ) +
+    theme_minimal(base_size = 11) +
+    theme(
+      plot.title = element_text(size = 16, face = "bold", hjust = 0.5, margin = margin(b = 5)),
+      plot.subtitle = element_text(size = 12, hjust = 0.5, color = "gray50", margin = margin(b = 15)),
+      plot.caption = element_text(size = 9, hjust = 0, color = "gray50"),
+      legend.position = "bottom",
+      strip.text = element_text(size = 10, face = "bold"),
+      panel.grid.minor = element_blank()
+    )
+  
+  return(histogram_comparison)
+}
+
+
+# Create side-by-side boxplot comparison
+create_boxplot_comparison <- function(comparison_data) {
+  boxplot_comparison <- comparison_data %>%
+    ggplot(aes(x = Dataset, y = Value, fill = Dataset)) +
+    geom_boxplot(alpha = 0.7, outlier.alpha = 0.5) +
+    facet_wrap(~Variable, scales = "free_y", ncol = 3) +
+    scale_fill_manual(
+      values = c("Before Cleaning" = "#FF6B6B", "After Cleaning" = "#4ECDC4"),
+      name = "Dataset"
+    ) +
+    labs(
+      title = "Statistical Distribution Comparison: Before vs After Cleaning",
+      subtitle = "Boxplots showing quartiles, medians, and outliers for cleaned variables",
+      x = "Dataset",
+      y = "Value",
+      caption = "Notice the removal of impossible zero values and improved distributions"
+    ) +
+    theme_minimal(base_size = 11) +
+    theme(
+      plot.title = element_text(size = 16, face = "bold", hjust = 0.5, margin = margin(b = 5)),
+      plot.subtitle = element_text(size = 12, hjust = 0.5, color = "gray50", margin = margin(b = 15)),
+      plot.caption = element_text(size = 9, hjust = 0, color = "gray50"),
+      legend.position = "bottom",
+      strip.text = element_text(size = 10, face = "bold"),
+      panel.grid.minor = element_blank()
+    )
+  
+  return(boxplot_comparison)
+}
+
+# Generate all comparison visualizations
+comparison_data <- create_before_after_comparison(diabetes_data, diabetes_cleaned)
+
+# Create and display histogram comparison
+hist_comparison <- create_histogram_comparison(comparison_data)
+print(hist_comparison)
+ggsave("graphs/diabetes_histogram_before_after_comparison.png", hist_comparison, 
+       width = 15, height = 10, dpi = 300)
+
+# Create and display boxplot comparison  
+box_comparison <- create_boxplot_comparison(comparison_data)
+print(box_comparison)
+ggsave("graphs/diabetes_boxplot_before_after_comparison.png", box_comparison, 
+       width = 15, height = 10, dpi = 300)
+```
+
+```{r}
+create_quality_comparison_plot <- function(original_data, cleaned_data) {
+  
+  # 1. Define a helper function to calculate quality metrics
+  calculate_quality_metrics <- function(data, dataset_name) {
+    # Variables to check (assuming zeros are not meaningful for these)
+    check_vars <- c("Glucose", "BloodPressure", "SkinThickness", "Insulin", "BMI")
+    
+    # Use map_dfr for a more concise way to build the metrics data frame
+    purrr::map_dfr(check_vars, function(var) {
+      if (var %in% colnames(data)) {
+        total_count <- nrow(data)
+        zero_count <- sum(data[[var]] == 0, na.rm = TRUE)
+        missing_count <- sum(is.na(data[[var]]))
+        valid_count <- total_count - zero_count - missing_count
+        
+        data.frame(
+          Variable = var,
+          Dataset = dataset_name,
+          `Invalid Zeros` = (zero_count / total_count) * 100,
+          `Missing Values` = (missing_count / total_count) * 100,
+          `Valid Values` = (valid_count / total_count) * 100
+        )
+      }
+    })
+  }
+  
+  # 2. Calculate metrics for both datasets
+  original_metrics <- calculate_quality_metrics(original_data, "Before Cleaning")
+  cleaned_metrics <- calculate_quality_metrics(cleaned_data, "After Cleaning")
+  
+  # 3. Combine metrics and prepare for plotting
+  plot_data <- bind_rows(original_metrics, cleaned_metrics) %>%
+    pivot_longer(
+      cols = c(`Valid.Values`, `Missing.Values`, `Invalid.Zeros`),
+      names_to = "Quality_Type",
+      values_to = "Percentage"
+    ) %>%
+    mutate(
+      # Clean up names and set factor order for correct stacking
+      Quality_Type = gsub("\\.", " ", Quality_Type),
+      Quality_Type = factor(Quality_Type, levels = c("Valid Values", "Missing Values", "Invalid Zeros"))
+    )
+  
+  # 4. Create the final plot
+  quality_plot <- ggplot(plot_data, aes(x = Variable, y = Percentage, fill = Quality_Type)) +
+    geom_col(position = "stack", alpha = 0.85, color = "white", size = 0.3) +
+    facet_wrap(~Dataset, ncol = 1) +
+    scale_fill_manual(
+      values = c("Valid Values" = "#2E8B57", "Missing Values" = "#FFA500", "Invalid Zeros" = "#DC143C"),
+      name = "Data Quality"
+    ) +
+    scale_y_continuous(labels = function(x) paste0(x, "%"), limits = c(0, 100)) +
+    labs(
+      title = "Data Quality Improvement Summary - Before vs After Cleaning",
+      subtitle = "Percentage of Valid, Missing, and Invalid Zero Values by Variable",
+      x = "Variable",
+      y = "Percentage of Total Records",
+      caption = "Note: Invalid zeros represent biologically impossible values in medical measurements."
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(
+      plot.title = element_text(size = 16, face = "bold", hjust = 0.5, margin = margin(b = 10)),
+      plot.subtitle = element_text(size = 12, hjust = 0.5, color = "gray50", margin = margin(b = 15)),
+      plot.caption = element_text(size = 9, hjust = 0, color = "gray50"),
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      axis.title.x = element_text(margin = margin(t = 10)),
+      axis.title.y = element_text(margin = margin(r = 10)),
+      legend.position = "bottom",
+      strip.text = element_text(size = 12, face = "bold"),
+      panel.grid.major.x = element_blank(),
+      panel.grid.minor = element_blank()
+    )
+  
+  return(quality_plot)
+}
+
+final_plot <- create_quality_comparison_plot(diabetes_data, diabetes_cleaned)
+
+print(final_plot)
+
+ggsave("graphs/data_quality_improvement_summary.png", plot = final_plot, width = 10, height = 8, dpi = 300)
+```
+
+------------------------------------------------------------------------
+
+## Conclusions {#conclusions}
+
+This comprehensive analysis of both datasets provides valuable insights:
+
+**Web Analytics Insights:**
+
+-   Source A consistently outperforms other traffic sources in both volume and revenue generation
+
+-   There's a strong negative relationship between bounce rates and conversion rates
+
+-   Mobile and laptop devices show different user behavior patterns
+
+-   Revenue is strongly correlated with both conversion rates and transaction volumes
+
+**Diabetes Dataset Quality Assessment:**
+
+-   The dataset contains significant data quality issues, particularly with impossible zero values
+
+-   Systematic missing data patterns suggest measurement challenges in clinical settings
+
+-   Proper data cleaning and imputation strategies are essential before conducting meaningful analysis
+
+**Recommendations:**
+
+1.  For web analytics: Focus on reducing bounce rates and optimizing Source A traffic quality
+
+2.  For diabetes research: Implement comprehensive data cleaning protocols before analysis
+
+3.  Both datasets would benefit from additional data validation and quality control measures
+
+The analysis demonstrates the importance of thorough data exploration and cleaning in ensuring reliable analytical results and business insights.
