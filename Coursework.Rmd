@@ -22,8 +22,6 @@
 
     -   [Task e: Error Identification](#task-e-error-identification)
 
-4.  [Conclusions](#conclusions)
-
 ------------------------------------------------------------------------
 
 ## Executive Summary {#executive-summary}
@@ -582,13 +580,11 @@ ggsave("graphs/conversion_rate_vs_transactions.png", correct_relationship_plots$
 
 2.  **Conversion Rate and Revenue Correlation (r = 0.352)**: The moderate positive correlation between conversion rate and revenue indicates that while higher conversion rates generally lead to increased revenue, the relationship is not as straightforward as the transaction-revenue relationship. This suggests that factors such as average order value, traffic volume, and customer segments significantly influence revenue outcomes beyond simple conversion optimization.
 
-3.  **Transactions vs Revenue**: Very strong positive correlation (0.95), demonstrating the direct relationship between transaction volume and revenue generation.
+3.  **Bounce Rate and Conversion Rate Correlation (r = -0.471)**: The moderate negative correlation between bounce rate and conversion rate confirms the expected inverse relationship. Higher bounce rates typically result in lower conversion rates, as users who leave immediately are less likely to complete transactions. This relationship validates the importance of user experience optimization and landing page effectiveness.
 
-4.  **Bounce Rate vs Transactions**: Moderate negative correlation (-0.45), suggesting that reducing bounce rates can help increase transaction volumes.
+4.  **Bounce Rate and Revenue Correlation (r = 0.017)**: The very weak correlation between bounce rate and revenue suggests that while bounce rate affects conversion rates, its direct impact on revenue is minimal when considered across all traffic sources and time periods. This indicates that revenue is more strongly influenced by the users who do stay and convert rather than those who bounce.
 
-These relationships indicate that focusing on reducing bounce rates and improving user engagement can significantly impact conversion rates and overall revenue performance.
-
-------------------------------------------------------------------------
+5.  **Conversion Rate and Transactions Correlation (r = 0.301)**: The moderate positive correlation between conversion rate and transactions shows that improved conversion rates do lead to more transactions, but the relationship is moderated by traffic volume and user quality factors.
 
 ## Task 2: Diabetes Dataset Analysis {#task-2-diabetes-dataset-analysis}
 
@@ -1306,35 +1302,3 @@ ggsave("graphs/data_quality_improvement_summary.png", plot = final_plot, width =
 ```
 
 ------------------------------------------------------------------------
-
-## Conclusions {#conclusions}
-
-This comprehensive analysis of both datasets provides valuable insights:
-
-**Web Analytics Insights:**
-
--   Source A consistently outperforms other traffic sources in both volume and revenue generation
-
--   There's a strong negative relationship between bounce rates and conversion rates
-
--   Mobile and laptop devices show different user behavior patterns
-
--   Revenue is strongly correlated with both conversion rates and transaction volumes
-
-**Diabetes Dataset Quality Assessment:**
-
--   The dataset contains significant data quality issues, particularly with impossible zero values
-
--   Systematic missing data patterns suggest measurement challenges in clinical settings
-
--   Proper data cleaning and imputation strategies are essential before conducting meaningful analysis
-
-**Recommendations:**
-
-1.  For web analytics: Focus on reducing bounce rates and optimizing Source A traffic quality
-
-2.  For diabetes research: Implement comprehensive data cleaning protocols before analysis
-
-3.  Both datasets would benefit from additional data validation and quality control measures
-
-The analysis demonstrates the importance of thorough data exploration and cleaning in ensuring reliable analytical results and business insights.
