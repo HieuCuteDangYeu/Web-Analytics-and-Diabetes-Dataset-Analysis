@@ -122,7 +122,6 @@ traffic_analysis <- function(data) {
     summarise(
       Total_Sessions = sum(Sessions, na.rm = TRUE),
       Total_Revenue = sum(Revenue, na.rm = TRUE),
-      Total_Users = sum(Users, na.rm = TRUE),
       .groups = 'drop'
     ) %>%
     arrange(Year, desc(Total_Sessions))
